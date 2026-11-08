@@ -6,20 +6,12 @@ import { useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 
 export default function PostForm({ post }) {
-    const {
-        register,
-        handleSubmit,
-        watch,
-        setValue,
-        control,
-        getValues,
-    } = useForm({
+    const { register, handleSubmit, watch, setValue, control, getValues } = useForm({
         defaultValues: {
-            title: post?.title || "",
+            Title: post?.Title || "",
             slug: post?.$id || "",
             content: post?.content || "",
             status: post?.status || "active",
-            fileType: post?.fileType || "",
         },
     });
 
@@ -27,42 +19,41 @@ export default function PostForm({ post }) {
     const userData = useSelector((state) => state.auth.userData);
 
     const submit = async (data) => {
-        const selectedFile = data.image?.[0];
-
         if (post) {
-            const file = selectedFile
-                ? await appwriteService.uploadFile(selectedFile)
-                : null;
+            const file = data.image[0] ? await appwriteService.uploadFile(data.image[0]) : null;
 
             if (file) {
-                appwriteService.deleteFile(post.featuredImage);
+                appwriteService.deleteFile(post.featureimage);
             }
 
             const dbPost = await appwriteService.updatePost(post.$id, {
                 ...data,
-                featuredImage: file ? file.$id : undefined,
-                fileType: selectedFile ? selectedFile.type : post.fileType,
+                featureimage: file ? file.$id : undefined,
             });
 
             if (dbPost) {
                 navigate(`/post/${dbPost.$id}`);
             }
         } else {
-            if (!selectedFile) return;
+            const files = await Promise.all(
+                Array.from(data.image || []).map((file) =>
+                    appwriteService.uploadFile(file)
+                )
+            );
 
-            const file = await appwriteService.uploadFile(selectedFile);
+            const fileIds = files
+                .filter((file) => file)
+                .map((file) => file.$id);
 
-            if (file) {
-                const dbPost = await appwriteService.createPost({
-                    ...data,
-                    featuredImage: file.$id,
-                    fileType: selectedFile.type,
-                    userId: userData.$id,
-                });
+            const dbPost = await appwriteService.createPost({
+                ...data,
+                userid: userData.$id,
+                featureimage: "",
+                attachments: JSON.stringify(fileIds),
+            });
 
-                if (dbPost) {
-                    navigate(`/post/${dbPost.$id}`);
-                }
+            if (dbPost) {
+                navigate(`/post/${dbPost.$id}`);
             }
         }
     };
@@ -81,17 +72,12 @@ export default function PostForm({ post }) {
     React.useEffect(() => {
         const subscription = watch((value, { name }) => {
             if (name === "title") {
-                setValue("slug", slugTransform(value.title), {
-                    shouldValidate: true,
-                });
+                setValue("slug", slugTransform(value.Title), { shouldValidate: true });
             }
         });
 
         return () => subscription.unsubscribe();
     }, [watch, slugTransform, setValue]);
-
-    const selectedFile = watch("image")?.[0];
-    const isImage = selectedFile?.type?.startsWith("image/");
 
     return (
         <form onSubmit={handleSubmit(submit)} className="flex flex-wrap">
@@ -100,79 +86,44 @@ export default function PostForm({ post }) {
                     label="Title :"
                     placeholder="Title"
                     className="mb-4"
-                    {...register("title", { required: true })}
+                    {...register("Title", { required: true })}
                 />
-
                 <Input
                     label="Slug :"
                     placeholder="Slug"
                     className="mb-4"
                     {...register("slug", { required: true })}
                     onInput={(e) => {
-                        setValue(
-                            "slug",
-                            slugTransform(e.currentTarget.value),
-                            { shouldValidate: true }
-                        );
+                        setValue("slug", slugTransform(e.currentTarget.value), { shouldValidate: true });
                     }}
                 />
-
-                <RTE
-                    label="Content :"
-                    name="content"
-                    control={control}
-                    defaultValue={getValues("content")}
-                />
+                <RTE label="Content :" name="content" control={control} defaultValue={getValues("content")} />
             </div>
-
             <div className="w-1/3 px-2">
                 <Input
-                    label="Upload Image / Document :"
+                    label="Upload Files (Images, Word, Excel, PDF):"
                     type="file"
                     className="mb-4"
-                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    multiple
                     {...register("image", { required: !post })}
                 />
-
-                {selectedFile && (
-                    <div className="mb-4 rounded-lg bg-gray-100 p-3">
-                        {isImage ? (
-                            <img
-                                src={URL.createObjectURL(selectedFile)}
-                                alt="Preview"
-                                className="w-full rounded-lg"
-                            />
-                        ) : (
-                            <p className="text-sm font-semibold">
-                                Selected file: {selectedFile.name}
-                            </p>
-                        )}
+                {post?.featureimage &&(
+                    <div className="w-full mb-4">
+                        <img
+                            src={appwriteService.getFileView(post.featureimage)}
+                            alt={post.Title}
+                            className="rounded-lg"
+                        />
                     </div>
                 )}
-
-                {post && !selectedFile && (
-                    <div className="mb-4 rounded-lg bg-gray-100 p-3">
-                        <p className="text-sm">
-                            Current file: {post.featuredImage}
-                        </p>
-                        <p className="text-sm">
-                            File type: {post.fileType}
-                        </p>
-                    </div>
-                )}
-
                 <Select
                     options={["active", "inactive"]}
                     label="Status"
                     className="mb-4"
                     {...register("status", { required: true })}
                 />
-
-                <Button
-                    type="submit"
-                    bgColor={post ? "bg-green-500" : undefined}
-                    className="w-full"
-                >
+                <Button type="submit" bgColor={post ? "bg-green-500" : undefined} className="w-full">
                     {post ? "Update" : "Submit"}
                 </Button>
             </div>
